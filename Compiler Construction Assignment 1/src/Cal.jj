@@ -1,0 +1,275 @@
+options
+{
+	IGNORE_CASE = true;
+	JAVA_UNICODE_ESCAPE = true;
+}
+
+PARSER_BEGIN(Cal)
+
+import java.io.*;
+import java.util.*;
+
+public class Cal
+{
+	public static void main(String[] args)
+	{
+	  	Cal parser;
+	  	if(args.length == 0)
+		{
+			System.out.println("Enter a file with extension .cal");
+			System.exit(1);
+		}
+		else if(args.length == 1)
+		{
+			try
+			{
+				parser = new Cal(new FileInputStream(args[0]));
+				parser.Program();
+				System.out.println("The program was parsed successfully.");
+			}
+			catch(FileNotFoundException e)
+			{
+				System.out.println("File " + args[0] + " doesn't exist.");
+			}
+			catch(ParseException e)
+			{
+				System.out.println("The program did not parse.");
+				System.out.println(e.getMessage());
+			}
+		}
+		else
+		{
+			System.out.print("Type: java Cal YOUR_FILE_NAME.cal");
+		}
+	}
+}
+
+PARSER_END(Cal)
+
+TOKEN_MGR_DECLS :
+{
+	static int commentNesting = 0;
+}
+
+SKIP : /*** Ignoring spaces/tabs/newlines ***/
+{
+	" "
+	| "\t"
+	| "\n"
+	| "\r"
+	| "\f"
+}
+
+
+SKIP : /* COMMENTS */
+{
+	"/*" { commentNesting++; } : IN_COMMENT
+}
+
+<IN_COMMENT> SKIP :
+{
+	"/*" { commentNesting++; }
+| 	"*/" { commentNesting--;
+			if (commentNesting == 0)
+				SwitchTo(DEFAULT);
+		}
+| 	<~[]>
+}
+
+SKIP : /* Single comments */
+{
+    < "//" (~["\n"])* "\n" >
+}
+
+TOKEN: /* keywords */
+{
+	< VARIABLE : "variable">
+| 	< CONSTANT : "constant">
+| 	< RETURN : "return">
+| 	< INTEGER : "integer">
+| 	< BOOLEAN: "boolean" >
+| 	< VOID: "void" >
+| 	< MAIN: "main" >
+| 	< IF: "if">
+| 	< ELSE: "else" >
+| 	< TRUE: "true" >
+| 	< FALSE: "false" >
+| 	< WHILE: "while" >
+| 	< BEGIN: "begin" >
+| 	< END: "end" >
+| 	< IS: "is" >
+| 	< SKP: "skip" >
+}
+
+TOKEN: /* operators */
+{
+	< COMMA : ",">
+| 	< SEMIC: ";" >
+| 	< COLON: ":" >
+| 	< ASSIGNMENT: ":=" >
+| 	< LP: "(" >
+| 	< RP: ")" >
+| 	< PLUS: "+" >
+| 	< MINUS: "-" >
+| 	< NOT_OP: "~" >
+| 	< OR: "|" >
+| 	< AND: "&" >
+| 	< EQUAL_TO: "=" >
+| 	< NEQUAL_TO: "!=" >
+| 	< LESS_THAN: "<" >
+| 	< LEQUAL_TO: "<=" >
+| 	< GREATER_THAN: ">" >
+| 	< GEQUAL_TO: ">=" >
+}
+
+TOKEN: /* Numbers and Identifiers */
+{
+	< #DIGIT: ["0"-"9"] >
+| 	< #LETTER: ["a"-"z", "A"-"Z"] >
+| 	< NUMBER: ("-")? "0" | ("-")? ["1"-"9"] (< DIGIT >)* >
+| 	< IDENTIFIER: < LETTER > (< LETTER > | < DIGIT > | "_")* >
+}
+
+TOKEN : /* Anything not recognized so far */
+{
+< OTHER : ~[] >
+}
+
+/* Production  Rules */
+
+void Program(): { }
+{
+	Decl_list() Function_list() Main()
+}
+
+void Decl_list() : { }
+{
+	(Decl() < SEMIC > Decl_list() | {})
+}
+
+void Decl() : { }
+{
+	Var_decl() | Const_decl()
+}
+
+void Var_decl() : { }
+{
+	< VARIABLE > < IDENTIFIER > < COLON > Type()
+}
+
+void Const_decl() : { }
+{
+	< CONSTANT > < IDENTIFIER > < COLON > Type() < ASSIGNMENT > Expression()
+}
+
+void Function_list() : {}
+{
+    (Function() Function_list() | {})
+}
+
+void Function() : { }
+{
+    Type() < IDENTIFIER > < LP > Parameter_list() < RP > < IS >
+    Decl_list()
+    < BEGIN >
+    Statement_block()
+    < RETURN > < LP > (Expression() | {}) < RP > < SEMIC >
+    < END >
+}
+
+void Type() : { }
+{
+	< INTEGER > | < BOOLEAN > | < VOID >
+}
+
+void Parameter_list() : { }
+{
+	Nemp_parameter_list() | {}
+}
+
+void Nemp_parameter_list() : { }
+{
+	< IDENTIFIER > <COLON > Type() [< COMMA > Nemp_parameter_list()]
+}
+
+void Main() : { }
+{
+	< MAIN >
+	< BEGIN >
+	Decl_list()
+	Statement_block()
+	< END >
+}
+
+void Statement_block() : {}
+{
+    (Statement() Statement_block()) | {}
+}
+
+void Statement() : {}
+{
+	< IDENTIFIER > (< ASSIGNMENT > Expression() | < LP > Arg_list() < RP >) < SEMIC >
+| 	< BEGIN > Statement_block() < END >
+| 	< IF > Condition() < BEGIN > Statement_block() < END >
+	< ELSE > < BEGIN > Statement_block() < END >
+| 	< WHILE > Condition() < BEGIN > Statement_block() < END >
+| 	< SKP > < SEMIC >
+}
+
+void Expression(): {}
+{
+    Fragment() Basic_expression() 
+|   < LP > Expression() < RP > Basic_expression()
+}
+
+void Basic_expression() : {}
+{
+    [Binary_arith_op() Expression()]
+}
+
+void Binary_arith_op() : { }
+{
+	< PLUS >
+| 	< MINUS >
+}
+
+void Fragment() : { }
+{
+	< IDENTIFIER >[< LP > Arg_list() < RP >]
+| 	< MINUS > < IDENTIFIER >
+| 	< NUMBER >
+| 	< TRUE >
+| 	< FALSE >
+}
+
+void Condition() : {}
+{
+    (<NOT_OP> Condition() Basic_condition())
+|   LOOKAHEAD(3) < LP > Condition() < RP > Basic_condition()
+|   (Expression() Comp_op() Expression() Basic_condition())
+}
+
+void Basic_condition() : {}
+{
+   (< OR > | < AND >) Condition() Basic_condition() | {}
+}
+
+void Comp_op() : { }
+{
+	< EQUAL_TO >
+| 	< NEQUAL_TO >
+| 	< LESS_THAN >
+| 	< LEQUAL_TO >
+| 	< GREATER_THAN >
+| 	< GEQUAL_TO >
+}
+
+void Arg_list(): { }
+{
+	Nemp_arg_list() | {}
+}
+
+void Nemp_arg_list() : { }
+{
+	< IDENTIFIER > [< COMMA > Nemp_arg_list()]
+}

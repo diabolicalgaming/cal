@@ -1,0 +1,19 @@
+public enum DataType
+{
+	SimpleNode,
+	Program,
+	VariableDecl,
+	ConstantDecl,
+	FuncBody,
+	FunctionReturn,
+	Assignment,
+	FunctionAssignment,
+	ParameterList,
+	Main,
+	Statement,
+	ConditionStm,
+	Number,
+	BooleanOperator,
+	Arglist,
+	TypeUnknown
+}

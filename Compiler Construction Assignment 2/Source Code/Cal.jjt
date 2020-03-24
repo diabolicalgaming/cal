@@ -1,0 +1,326 @@
+options
+{
+	IGNORE_CASE = true;
+	JAVA_UNICODE_ESCAPE = true;
+
+	MULTI = true;
+	VISITOR = true;
+	NODE_DEFAULT_VOID = true;
+}
+
+PARSER_BEGIN(Cal)
+
+import java.io.*;
+import java.util.*;
+
+public class Cal
+{
+	public static String scope = "global";
+	public static SymbolTable symTable = new SymbolTable();
+  
+	public static void main(String[] args)
+	{ 	
+	  	Cal parser;
+	  	if(args.length == 0)
+		{
+			System.out.println("Enter a file with extension .cal");
+			System.exit(1);
+		}
+		else if(args.length == 1)
+		{
+		  
+			try
+			{
+				parser = new Cal(new FileInputStream(args[0]));
+
+				SimpleNode simpleNode = parser.Program();
+				System.out.println("The program was parsed successfully.\n");
+				System.out.println("--AST--");
+				simpleNode.dump("");
+				
+				System.out.println("\n--Symbol Table--\n");
+				symTable.output();
+
+				System.out.println("--Semantic Analysis--");
+				TypeCheckVisitor typecheckvisitor = new TypeCheckVisitor();
+				simpleNode.jjtAccept(typecheckvisitor, symTable);
+				
+				System.out.println("\n--Intermediate Code Representation--\n");
+				ThreeAddressCodeVisitor tac = new ThreeAddressCodeVisitor();
+				simpleNode.jjtAccept(tac,null);
+				
+			}
+			catch(FileNotFoundException e)
+			{
+				System.out.println("File " + args[0] + " doesn't exist.");
+			}
+			catch(ParseException e)
+			{
+				System.out.println("The program did not parse.");
+				System.out.println(e.getMessage());
+			}
+		}
+		else
+		{
+			System.out.print("Type: java Cal YOUR_FILE_NAME.cal");
+		}
+	}
+}
+
+PARSER_END(Cal)
+
+TOKEN_MGR_DECLS :
+{
+	static int commentNesting = 0;
+}
+
+SKIP : /*** Ignoring spaces/tabs/newlines ***/
+{
+	" "
+	| "\t"
+	| "\n"
+	| "\r"
+	| "\f"
+}
+
+
+SKIP : /* COMMENTS */
+{
+	"/*" { commentNesting++; } : IN_COMMENT
+}
+
+<IN_COMMENT> SKIP :
+{
+	"/*" { commentNesting++; }
+| 	"*/" { commentNesting--;
+			if (commentNesting == 0)
+				SwitchTo(DEFAULT);
+		}
+| 	<~[]>
+}
+
+SKIP : /* Single comments */
+{
+    < "//" (~["\n"])* "\n" >
+}
+
+TOKEN: /* keywords */
+{
+	< VARIABLE : "variable">
+| 	< CONSTANT : "constant">
+| 	< RETURN : "return">
+| 	< INTEGER : "integer">
+| 	< BOOLEAN: "boolean" >
+| 	< VOID: "void" >
+| 	< MAIN: "main" >
+| 	< IF: "if">
+| 	< ELSE: "else" >
+| 	< TRUE: "true" >
+| 	< FALSE: "false" >
+| 	< WHILE: "while" >
+| 	< BEGIN: "begin" >
+| 	< END: "end" >
+| 	< IS: "is" >
+| 	< SKP: "skip" >
+
+/* symbols and operators */
+| 	< COMMA : ",">
+| 	< SEMIC: ";" >
+| 	< COLON: ":" >
+| 	< ASSIGNMENT: ":=" >
+| 	< LP: "(" >
+| 	< RP: ")" >
+| 	< PLUS: "+" >
+| 	< MINUS: "-" >
+| 	< NOT_OP: "~" >
+| 	< OR: "|" >
+| 	< AND: "&" >
+| 	< EQUAL_TO: "=" >
+| 	< NEQUAL_TO: "!=" >
+| 	< LESS_THAN: "<" >
+| 	< LEQUAL_TO: "<=" >
+| 	< GREATER_THAN: ">" >
+| 	< GEQUAL_TO: ">=" >
+
+/* Numbers and Identifiers */
+| 	< #DIGIT: ["0"-"9"] >
+| 	< #LETTER: ["a"-"z", "A"-"Z"] >
+| 	< NUMBER: ("-")? "0" | ("-")? ["1"-"9"] (< DIGIT >)* >
+| 	< IDENTIFIER: < LETTER > (< LETTER > | < DIGIT > | "_")* >
+}
+
+TOKEN : /* Anything not recognized so far */
+{
+< OTHER : ~[] >
+}
+
+/* Production  Rules */
+
+SimpleNode Program() #Program: { }
+{
+	Decl_list() Function_list() Main() { return jjtThis; }
+}
+
+void Decl_list() : { }
+{
+	(Decl() < SEMIC > Decl_list() | {})
+}
+
+void Decl() : { }
+{
+	Var_decl() | Const_decl()
+}
+
+void Var_decl() #VariableDecl: { Token t; String id; String type; }
+{
+	t = < VARIABLE > id = Id() < COLON > type = Type()
+	{
+		jjtThis.value = t.image;
+		/* REMEMBER: symtable.push here*/
+		symTable.push(scope, "variable", id, type);
+	}
+}
+
+void Const_decl() #ConstantDecl: { Token t; String id; String type; }
+{
+	t = < CONSTANT > id = Id() < COLON > type = Type() < ASSIGNMENT > Expression()
+	{
+	  	jjtThis.value = t.image;
+		/*REMEMBER: symtable.push here*/
+		symTable.push(scope, "constant", id, type);
+	}
+}
+
+void Function_list() : {}
+{
+    (Function() Function_list() | {})
+}
+
+void Function() #FuncBody: { String type; String id; }
+{
+    type = Type() id = Id() { symTable.push(scope, "function", id, type); scope = id; } < LP > Parameter_list() < RP > < IS >
+    Decl_list()
+    < BEGIN >
+    Statement_block()
+    < RETURN > < LP > (Expression() | {}) < RP > < SEMIC > #FunctionReturn
+    < END >
+}
+
+String Type() #Type : { Token t; }
+{
+	(t = < INTEGER >) { jjtThis.value = t.image; return t.image; }
+| 	(t = < BOOLEAN >) { jjtThis.value = t.image; return t.image; }
+| 	(t = < VOID >) { jjtThis.value = t.image; return t.image; }
+}
+
+void Parameter_list(): { }
+{
+	[Nemp_parameter_list()]
+}
+
+void Nemp_parameter_list() #ParameterList: { String id; String type; }
+{
+	id = Id() < COLON > type = Type() [< COMMA > Nemp_parameter_list()]
+	/* REMEMBER: symtable.push here*/
+	{
+	  symTable.push(scope, "funcParam", id, type);
+	}
+}
+
+void Main() #Main: { Token t; }
+{
+  	{ scope = "main"; } t = < MAIN >
+	< BEGIN >
+	Decl_list()
+	Statement_block()
+	< END >
+}
+
+void Statement_block() : {}
+{
+    (Statement() Statement_block()) | {}
+}
+
+void Statement() #Statement: { Token t; }
+{
+	Id() (t = < ASSIGNMENT > Expression() { jjtThis.value = t.image; } #Assignment(2) | t = < LP > Arg_list() < RP > { jjtThis.value = t.image; } #FunctionAssignment(2)) < SEMIC >
+| 	< BEGIN > Statement_block() < END >
+| 	(t = < IF > Condition() < BEGIN > Statement_block() < END >
+	< ELSE > < BEGIN > Statement_block() < END > { jjtThis.value = t.image; }) #ConditionStm
+| 	(t = < WHILE > Condition() < BEGIN > Statement_block() < END > { jjtThis.value = t.image; }) #ConditionStm
+| 	< SKP > < SEMIC >
+}
+
+void Expression(): {}
+{
+    Fragment() Binary_arith_op() 
+|   < LP > Expression() < RP > Binary_arith_op()
+}
+
+void Binary_arith_op() : { Token t; }
+{
+	t = < PLUS > Expression() { jjtThis.value = t.image; } #PlusOperator(2)
+| 	t = < MINUS >  Expression() { jjtThis.value = t.image; } #MinusOperator(2)
+| 	{}
+}
+
+void Fragment() : {}
+{
+	Id() [< LP > Arg_list() < RP >]
+| 	< MINUS > Id()
+| 	Number()
+| 	BooleanOperator()
+}
+
+void Condition() : {}
+{
+    (<NOT_OP> Condition() Basic_condition())
+|   LOOKAHEAD(3) < LP > Condition() < RP > Basic_condition()
+|   (Comp_op() Basic_condition())
+}
+
+void Basic_condition() : { Token t; }
+{
+    t = < OR > Condition() { jjtThis.value = t.image; } #OrCond(2)
+|  	t = < AND > Condition() { jjtThis.value = t.image; } #AndCond(2)
+| 	{}
+}
+
+void Comp_op() : { Token t; }
+{
+	Expression()
+	(
+	t = < EQUAL_TO > Expression() { jjtThis.value = t.image; } #EqualTo(2)
+| 	t = < NEQUAL_TO > Expression() { jjtThis.value = t.image; } #NequalTo(2)
+| 	t = < LESS_THAN > Expression() { jjtThis.value = t.image; } #LessThan(2)
+| 	t = < LEQUAL_TO > Expression() { jjtThis.value = t.image; } #LequalTo(2)
+| 	t = < GREATER_THAN > Expression() { jjtThis.value = t.image; } #GreaterThan(2)
+| 	t = < GEQUAL_TO > Expression() { jjtThis.value = t.image; } #GequalTo(2)
+	)
+}
+
+void Arg_list() #Arglist: { }
+{
+	Nemp_arg_list() | {}
+}
+
+void Nemp_arg_list() : { }
+{
+	Id() [< COMMA > Nemp_arg_list()]
+}
+
+void BooleanOperator() #BooleanOperator: { Token t; }
+{
+	(t = < TRUE >) { jjtThis.value = t.image; } 
+| 	(t = < FALSE >) { jjtThis.value = t.image; }
+}
+
+void Number() #Number: { Token t; }
+{
+	(t = < NUMBER >) { jjtThis.value = t.image; }
+}
+
+String Id() #Id : { Token t; }
+{
+	t = < IDENTIFIER > { jjtThis.value = t.image; return t.image; }
+}
